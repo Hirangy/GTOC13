@@ -1,0 +1,1700 @@
+clear;
+clc;
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                                   LOADING                               %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+% THIS CODE REQUIRES PRE-GENERATED P2P_catalogue/CAT-.mat 
+
+data = readmatrix('gtoc13_planets.csv', 'NumHeaderLines', 1);
+CATdirectory = 'P2P_catalogue/CAT-';
+CATextensions = {'none';'out';'push'};
+for i = 1:3
+    load(sprintf('%s%s.mat', CATdirectory, CATextensions{i,:}));
+    CATdata{i} = CATcell; %CATALOGUE DATA
+    alpha_coast_vals(i) = CATaxis.alpha_coast; %coasting orientation
+    delta_coast_vals(i) = CATaxis.delta_coast; %coasting orientation
+    gamma_vals = CATaxis.gamma_vals; %ejection flight angle
+    phase_vals = CATaxis.DeltaM_vals; %initial relative phase
+    aratios = CATaxis.aratios;
+    vi_vals = CATaxis.vi_vals; %initial relative velocity (/of orbital velocity)
+end
+%Syntax
+%CATcell{coasting orientaion}{mag initial relative velocity}(initial relative
+%phase,planet pairs)(solution ejection angle, solution travel time)
+aratiossizeori = numel(aratios(:,1));
+for i = 3:4
+    aratios = [aratios;[1,i,i]];
+end
+for i = 6:6
+    aratios = [aratios;[1,i,i]];
+end
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                            CONSTANTS & OPTIONS                          %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+doPLOT = 1;
+mu = 139348062043.343; %[km^3/s^2]
+r0 = 149597870.691; %[km]
+Y = 365.25*86400; %Earth year (only for reference)
+
+planet_names = {'Vulcan(1)','Yavin(2)','Eden(3)','Hoth(4)','Yandi(1000)',...
+    'Beyonce(5)','Bespin(6)','Jotunn(7)','Wakonyingo(8)','Rouge One(9)',...
+    'PlanetX(10)'};
+
+color = [100 100 100; 219 209 189; 0 0 229; 220 0 0; 40 40 40; 233 160 20;
+    200 230 0; 150 150 250;20 20 240;200 20 200;20 240 40]/256;
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                          FLYBY INITIAL CONDITIONS                       %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+tstart = 1.5*Y; %Flyby epoch (Earth year (0 to 200))
+flyby_pla = 3; %Planet to flyby 2,3,4 are good, 6 is sus due to high ecc
+alpha_incoming = -60 *pi/180; %(In plane angle from Rhat +forward)
+delta_incoming = 0 *pi/180; %(Out of plane from angle +toward Nhat)
+v_in = 3; %Incoming velocity
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                      FLYBY PLANET COE, RV & TURN ANGLE                  %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+%COE
+a = data(flyby_pla,5);
+e = data(flyby_pla,6);
+inc = data(flyby_pla,7)*pi/180;
+RAAN = data(flyby_pla,8)*pi/180;
+omega = data(flyby_pla,9)*pi/180;
+M0 = data(flyby_pla,10)*pi/180;
+
+T = 2*pi*sqrt(a^3/mu); %Flyby planet period
+M = mod(M0 + 2*pi*tstart/T, 2*pi);
+E = M;
+for iter = 1:30
+    E = E - (E - e.*sin(E) - M)./(1 - e.*cos(E));
+end
+f = 2*atan(sqrt((1+e)./(1-e)).*tan(E/2));
+r = a.*(1-e.^2)./(1+e.*cos(f));
+v = sqrt(2*mu./r-mu/a);
+
+%RV
+RV_flyby(1:3,1) = [r.*(cos(f+omega)*cos(RAAN)-sin(f+omega)*cos(inc)*sin(RAAN)),...
+    r.*(cos(f+omega)*sin(RAAN)+sin(f+omega)*cos(inc)*cos(RAAN)),...
+    r.*(sin(f+omega)*sin(inc))];
+gamma = atan(e.*sin(f)./(1+e.*cos(f)));
+RV_flyby(4:6,1) = [v.*(-sin(f+omega-gamma)*cos(RAAN)-cos(f+omega-gamma)*cos(inc)*sin(RAAN)),...
+    v.*(-sin(f+omega-gamma)*sin(RAAN)+cos(f+omega-gamma)*cos(inc)*cos(RAAN)),...
+    v.*(cos(f+omega-gamma)*sin(inc))];
+
+%RTN UNIT VECTOR
+u_in_RTN = -[cos(alpha_incoming),-sin(alpha_incoming),0;
+    sin(alpha_incoming),cos(alpha_incoming),0;
+    0,0,1]*[cos(-delta_incoming),0,sin(-delta_incoming);
+    0,1,0;
+    -sin(-delta_incoming),0,cos(-delta_incoming)]*[1,0,0]';
+mu_pla = data(flyby_pla,3);
+radius_pla = data(flyby_pla,4);
+u_in_xyz = (projxyz(RV_flyby)*u_in_RTN);
+u_in_radial = cross([0,0,1],u_in_xyz)';
+u_in_normal = cross(u_in_xyz,u_in_radial);
+
+turn_min = 2*asin((mu_pla/(radius_pla*101))/(v_in^2+mu_pla/(radius_pla*101)));
+turn_max = 2*asin((mu_pla/(radius_pla*1.1))/(v_in^2+mu_pla/(radius_pla*1.1)));
+
+gamma_0 = pi/2 + alpha_incoming;
+
+rhat = RV_flyby(1:3)/norm(RV_flyby(1:3));
+vhat = RV_flyby(4:6)/norm(RV_flyby(4:6));
+nhat = cross(rhat,vhat)/norm(cross(rhat,vhat));
+that = cross(nhat,rhat)/norm(cross(nhat,rhat));
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+
+% .dP"Y8 888888    db     dP""b8 888888     8888P 888888 88""Yb  dP"Yb
+% `Ybo."   88     dPYb   dP   `" 88__         dP  88__   88__dP dP   Yb
+% o.`Y8b   88    dP__Yb  Yb  "88 88""        dP   88""   88"Yb  Yb   dP
+% 8bodP'   88   dP""""Yb  YboodP 888888     d8888 888888 88  Yb  YbodP
+
+tic;
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                      VALID EXIT FLIGHT ANGLE RANGE                      %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+fprintf('STAGE ZERO\n Departing planet: %1.0f\n',flyby_pla);
+
+if abs(delta_incoming) + turn_max < pi
+    if delta_incoming < turn_min %In this case there is a gap due to δ_T,min
+        gamma_1 = acos(cos(turn_min)/cos(delta_incoming));
+        gamma_2 = acos(cos(turn_max)/cos(delta_incoming));
+        gamma_range = [gamma_0-gamma_2,gamma_0-gamma_1,gamma_0+gamma_1,gamma_0+gamma_2];
+        if gamma_range(1)<-pi
+            gamma_range = [-pi,gamma_range(2),gamma_range(3),gamma_range(4),gamma_range(1)+2*pi,pi];
+        end
+        if gamma_range(4)>pi
+            gamma_range = [-pi,gamma_range(4)-2*pi,gamma_range(1),gamma_range(2),gamma_range(3),pi];
+        end
+    else %In this case there is NO gap due to δ_T,min
+        gamma_2 = acos(cos(turn_max)/cos(delta_incoming));
+        gamma_range = [gamma_0-gamma_2,gamma_0+gamma_2];
+        if gamma_range(1)<-pi
+            gamma_range = [-pi,gamma_range(2),gamma_range(1)+2*pi,pi];
+        end
+        if gamma_range(2)>pi
+            gamma_range = [-pi,gamma_range(2)-2*pi,gamma_range(1),pi];
+        end
+    end
+else
+    gamma_range = [-pi,pi];
+end
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                       PLANETARY PHASE EXTRACTION                        %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+
+R_pla = PlaPos(tstart, data);
+for i = 1:11
+    r_pla_hat = R_pla(i,:) / norm(R_pla(i,:));
+    phase_Pla(i) = mod(atan2(dot(cross(rhat, r_pla_hat), nhat), dot(rhat, r_pla_hat)), 2*pi);
+    if i == flyby_pla
+        phase_Pla(i) = 0;
+    end
+end
+
+phase_combination = [];
+for i = 1:numel(aratios(:,1))
+    if aratios(i,2) == flyby_pla
+        phase = phase_Pla(aratios(i,3));
+        [~, iphase] = min(abs(phase_vals - phase));
+        phase_combination = [phase_combination;[i,iphase]];
+    end
+end
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%               ✿ ❀ ❁ ✾ ✽ ❃     VISUALIZATION     ✿ ❀ ❁ ✾ ✽ ❃             %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+%Projecting velocity vector for confirmation
+for i = 1:numel(gamma_range)
+    U_proj = [u_in_xyz(1);u_in_xyz(2);0];
+    gamma_range_vec(i,:) = [cos(gamma_range(i)),-sin(gamma_range(i)),0; ...
+        sin(gamma_range(i)),cos(gamma_range(i)),0;...
+        0,0,1]*that;
+end
+
+n_turn = 50;
+n_spin = 100;
+turn_angles = linspace(turn_min, turn_max, n_turn);
+spin_angles = linspace(0, 2*pi, n_spin);
+U = zeros(n_turn, n_spin, 3);
+rot = @(axis, theta) axang2rotm([axis'/norm(axis), theta]);
+for i = 1:n_turn
+    R_turn = rot(u_in_normal, turn_angles(i));
+    v_turned = R_turn * u_in_xyz;
+    for j = 1:n_spin
+        R_spin = rot(u_in_xyz, spin_angles(j));
+        v_out = R_spin * v_turned;
+        U(i,j,:) = v_out*v_in;
+    end
+end
+
+if doPLOT
+    figure;
+    surf(U(:,:,1), U(:,:,2), U(:,:,3), 'FaceAlpha', 0.3, 'EdgeColor', 'none', 'FaceColor', [0 0.5 1]);
+    hold on;
+    quiver3(0,0,0,rhat(1),rhat(2),rhat(3),1,'LineWidth',3,color='red');
+    quiver3(0,0,0,that(1),that(2),that(3),1,'LineWidth',3,color='green');
+    quiver3(0,0,0,nhat(1),nhat(2),nhat(3),1,'LineWidth',3,color='blue');
+
+    quiver3(0,0,0,u_in_xyz(1),u_in_xyz(2),u_in_xyz(3),v_in,'LineWidth',3,color='red');
+    quiver3(0,0,0,u_in_xyz(1),u_in_xyz(2),u_in_xyz(3),v_in,'LineWidth',3,color='red');
+    axis equal;
+
+    for i = 1:numel(gamma_range)
+        quiver3(0,0,0,gamma_range_vec(i,1),gamma_range_vec(i,2),0,v_in,'LineWidth',3,color='green');
+    end
+
+    vrange = 10;
+    xlim([-vrange,vrange]);
+    ylim([-vrange,vrange]);
+    zlim([-vrange,vrange]);
+end
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                           CATALOUGUE EXTRACTION                         %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+
+v_o = sqrt(mu/a);
+vi_vo = v_in/v_o;
+[~, iv] = min(abs(vi_vals - vi_vo));
+
+gamma_vals_filtered = [];
+ig_filtered = [];
+
+for i = 1:2:length(gamma_range)
+    low = gamma_range(i);
+    high = gamma_range(i+1);
+    gamma_vals_filtered = [gamma_vals_filtered, gamma_vals(gamma_vals >= low & gamma_vals <= high)];
+end
+
+if doPLOT
+    figure;
+    legend_entries = {};
+end
+
+for i = 1:numel(phase_combination(:,1))
+    ia = phase_combination(i,1);
+    solutions = [];
+    ip = phase_combination(i,2);
+    for ic = 1:3
+        for im = 1:numel(phase_vals)
+            if ia<=aratiossizeori
+                CATextract = [CATdata{ic}{iv}{im,ia},zeros(size(CATdata{ic}{iv}{im,ia},1),1)+im,zeros(size(CATdata{ic}{iv}{im,ia},1),1)+ic];
+            else
+                CATextract = [CATdata{ic}{iv}{im,1},zeros(size(CATdata{ic}{iv}{im,1},1),1)+im,zeros(size(CATdata{ic}{iv}{im,1},1),1)+ic];
+            end
+            solutions = [solutions;CATextract];
+        end
+    end
+    %solutions(gamma index, tof, phase index, coasting index)
+
+    gamma_selected = gamma_vals(solutions(:,1));
+    mask = ismember(gamma_selected, gamma_vals_filtered);
+
+    if any(mask)
+        gamma_filtered = gamma_selected(mask);
+        phase_filtered = phase_vals(solutions(mask,3));
+        tof_filtered = solutions(mask,2);
+        coast_filtered = solutions(mask,4);
+    else
+        % Empty fallback
+        gamma_filtered = [];
+        phase_filtered = [];
+        tof_filtered = [];
+        coast_filtered = [];
+    end
+
+    % Filtered --> Solution
+    if ~isempty(phase_filtered)
+        mask2 = phase_filtered == phase_vals(ip);
+        if any(mask2)
+            gamma_solution{ia} = gamma_filtered(mask2);
+            phase_solution{ia} = phase_filtered(mask2);
+            tof_solution{ia} = tof_filtered(mask2);
+            coast_solution{ia} = coast_filtered(mask2);
+        else
+            gamma_solution{ia} = [];
+            phase_solution{ia} = [];
+            tof_solution{ia} = [];
+            coast_solution{ia} = [];
+        end
+    else
+        gamma_solution{ia} = [];
+        phase_solution{ia} = [];
+        tof_solution{ia} = [];
+        coast_solution{ia} = [];
+    end
+
+    % Plot only if there's something to plot
+    if doPLOT
+        
+        if ~isempty(gamma_solution{ia})
+        scatter3(gamma_solution{ia}, phase_solution{ia}, tof_solution{ia}, ...
+            50, color(aratios(ia,3),:), 'filled');
+        end
+        hold on;
+        legend_entries{end+1} = planet_names{aratios(ia,3)};
+    end
+end
+
+if doPLOT
+    legend(legend_entries,'FontSize',15);
+    %scatter3(gamma_vals(solutions(:,1)), phase_vals(solutions(:,3)), solutions(:,2), ...
+    %        5, color(aratios(ia,3),:));
+
+    xlabel('gamma');
+    ylabel('phase angle');
+    zlabel('time of flight (T)');
+    ylim([0,2*pi]);
+    zlim([0,3]);
+    title('');
+
+    % Build and set title
+    title(sprintf("Departing %s at %.2f km/s  α = %.1f°  δ = %.1f°  at T = %.2f years", ...
+        planet_names{flyby_pla}, v_in, alpha_incoming * 180/pi, delta_incoming * 180/pi, tstart / (365.25 * 86400)),'FontSize',15);
+
+    pause(0.5);
+end
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                           SAMPLE RESULT FOR STAGE ONE                   %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+solution_sampled = [];
+
+for i = 1:numel(phase_combination(:,1))
+    ia = phase_combination(i,1);
+    [~,i_tmin] = min(tof_solution{ia});
+
+    %fastest solution
+    try
+        solution_sampled = [solution_sampled;[aratios(ia,2),aratios(ia,3),gamma_solution{ia}(i_tmin),phase_solution{ia}(i_tmin),tof_solution{ia}(i_tmin),coast_solution{ia}(i_tmin)]];
+    catch
+    end
+
+    %extra solution
+    extra_solution_per_pair = 3;
+    for j = 1:extra_solution_per_pair
+        try
+            k = floor(j/extra_solution_per_pair*numel(gamma_solution{ia}));
+            solution_sampled = [solution_sampled;[aratios(ia,2),aratios(ia,3),gamma_solution{ia}(k),phase_solution{ia}(k),tof_solution{ia}(k),coast_solution{ia}(k)]];
+        catch
+        end
+    end
+end
+
+fprintf('done\n Potential Solutions identitied: %1.0f\n',numel(solution_sampled(1,:)));
+
+%solution_sampled(start planet, target planet, gamma, phase, tof, coast choice);
+%curenntly prefering fastest tof for each planet pairs
+toc0 = toc;
+tic;
+
+%========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+%     .dP"Y8 888888    db     dP""b8 888888      dP"Yb  88b 88 888888
+%     `Ybo."   88     dPYb   dP   `" 88__       dP   Yb 88Yb88 88__
+%     o.`Y8b   88    dP__Yb  Yb  "88 88""       Yb   dP 88 Y88 88""
+%     8bodP'   88   dP""""Yb  YboodP 888888      YbodP  88  Y8 888888
+
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+%                         PREPARATION from STAGE ZERO                     %
+%===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+%Planned duration of sailing (fraction of T)
+sail_max = 0.6;
+
+
+for isol = 1:numel(solution_sampled(:,1))
+    fprintf('STAGE ONE: Verifying solution number: %1.0f\n',isol);
+
+    %try
+    clear F1 av1
+
+    fprintf('isol = %1.0f From %1.0f to %1.0f\n',isol,solution_sampled(isol,1),solution_sampled(isol,2));
+
+    gamma = solution_sampled(isol,3);              % base flyby turn angle (rad)
+    gamma_vary = gamma + linspace(-0.15,0.15,5);   % ±0.15 rad sweep
+    yaw_vary = 0;%deg2rad(linspace(-5,5,3));          % ±1° yaw sweep
+    
+    % Create parameter mesh
+    [GammaGrid, YawGrid] = meshgrid(gamma_vary, yaw_vary);
+    param_list = [GammaGrid(:), YawGrid(:)];       % Nx2 array of [gamma, yaw]
+    
+    % Preallocate output
+    N = numel(param_list(:,1));
+    RV_out{isol} = zeros(6, N);
+    
+    for i = 1:N
+        v_out = v_in;
+        gamma_i = param_list(i,1);
+        yaw_i   = param_list(i,2);
+    
+        % Base turn vector
+        Gamma_vec = cos(gamma_i)*that + sin(gamma_i)*rhat;
+    
+        % --- Apply yaw rotation about rhat axis ---
+        % Rodrigues' rotation formula: R_yaw * Gamma_vec
+        Gamma_rot = Gamma_vec * cos(yaw_i) + ...
+                    cross(rhat, Gamma_vec) * sin(yaw_i) + ...
+                    rhat * (dot(rhat, Gamma_vec)) * (1 - cos(yaw_i));
+    
+        % Normalize to ensure unit direction
+        V_out_hat = Gamma_rot / norm(Gamma_rot);
+    
+        % Store result
+        RV_out{isol}(:,i) = [RV_flyby(1:3,1); RV_flyby(4:6,1) + V_out_hat * v_out];
+    end
+    i_alpha_coast = solution_sampled(isol,6);
+    i_delta_coast = solution_sampled(isol,6);
+    alpha_coast{isol} = alpha_coast_vals(i_alpha_coast);
+    delta_coast{isol} = delta_coast_vals(i_delta_coast);
+    tof{isol} = solution_sampled(isol,5);
+    target_pla{isol} = solution_sampled(isol,2);
+
+
+    %Initial net with 9 points
+    delta_vals = [0,50/180*pi,25/180*pi,-50/180*pi,-25/180*pi];
+    delta_vals = [delta_vals,delta_vals,delta_vals,delta_vals,0,0,pi/2];
+    alpha_vals = [zeros(1,5)+0.5,zeros(1,5)-0.25,zeros(1,5)+0.25,zeros(1,5)-0.5,-1,1,0];
+
+    plotrange1 = 2*a;
+    tic;
+    %FIRST STAGE: sweep large arc to catch any planets
+
+    doBreak = 0;
+
+    %========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+    %                         BEGIN SEARCH for EACH isol                      %
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+    if doPLOT
+        figure('Position', [100 100 1100 700]);
+    end
+    t_ahead_vals = tof{isol}-0.1:0.01:tof{isol}+0.1;
+    for k = 1:numel(t_ahead_vals)
+        t_ahead = t_ahead_vals(k);
+        tstep = t_ahead*T/300;
+        t_vals = tstart:tstep:tstart+t_ahead*T;
+        R_pla = PlaPos(tstart+t_ahead*T,data);
+        Rfinal1 = zeros(3,numel(alpha_vals));
+        F1 = cell(size(RV_out{isol},2));
+        in = cell(size(RV_out{isol},2));
+        for l = 1:size(RV_out{isol},2)
+            for j = 1:numel(alpha_vals)
+                RV = RV_out{isol}(:,l);
+                COE_out = RV2COE(RV,mu);
+                a_out = COE_out(1,:);
+                T_out = 2*pi*sqrt(a_out.^3/mu);
+                %Integration
+                alpha = alpha_vals(j);
+                delta = delta_vals(j);
+                for ti = 1:numel(t_vals)
+                    t = t_vals(ti);
+                    a_sail = asail(alpha,delta,RV);
+                    a_sailxyz = projxyz(RV)*a_sail;
+                    a_sail_coast = asail(alpha_coast{isol},delta_coast{isol},RV);
+                    a_sail_coastxyz = projxyz(RV)*a_sail_coast;
+                    if t_ahead*T < sail_max*T_out
+                        RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                    elseif t-tstart > t_ahead*T-sail_max*T_out
+                        RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                    else
+                        RV=rk4orbit(t,RV,tstep,a_sail_coastxyz);
+                    end
+                end
+                Rfinal1(:,j,l) = RV(1:3);
+            end
+            [F1{l},av1{l}] = convhull(Rfinal1(1,:,l),Rfinal1(2,:,l),Rfinal1(3,:,l));
+            in{l} = CheckPointPolyhedron(Rfinal1(:,:,l)',F1{l},R_pla(target_pla{isol},:));
+        end
+
+        if doPLOT
+            clf;
+            hold on;
+            f_vals = (0:0.02:2*pi)';
+            for i = 1:11
+                a_pla = data(i,5);
+                e_pla = data(i,6);
+                inc_pla = data(i,7)*pi/180;
+                RAAN_pla = data(i,8)*pi/180;
+                omega_pla = data(i,9)*pi/180;
+                r_path = a_pla.*(1-e_pla.^2)./(1+e_pla.*cos(f_vals));
+                R_path_pla{i} = [r_path.*(cos(f_vals+omega_pla)*cos(RAAN_pla)-sin(f_vals+omega_pla)*cos(inc_pla)*sin(RAAN_pla)),...
+                    r_path.*(cos(f_vals+omega_pla)*sin(RAAN_pla)+sin(f_vals+omega_pla)*cos(inc_pla)*cos(RAAN_pla)),...
+                    r_path.*(sin(f_vals+omega_pla)*sin(inc_pla))];
+                plot3(R_path_pla{i}(:,1), R_path_pla{i}(:,2), R_path_pla{i}(:,3), 'color', color(i,:), 'LineWidth',1);
+            end
+
+            for l = 1:size(RV_out{isol},2)
+                scatter3(Rfinal1(1,:,l), Rfinal1(2,:,l), Rfinal1(3,:,l), 10, 'filled', 'm');
+                trisurf(F1{l}, Rfinal1(1,:,l), Rfinal1(2,:,l), Rfinal1(3,:,l),'FaceColor','cyan','FaceAlpha',0.2,'EdgeAlpha',0);
+            end
+            scatter3(0, 0, 0, 50, 'filled', 'MarkerFaceColor', 'y'); %SUM
+            scatter3(R_pla(:,1), R_pla(:,2), R_pla(:,3), 50, 'filled', 'm'); %PLANETS
+            scatter3(RV_flyby(1,1), RV_flyby(2,1), RV_flyby(3,1), 30, 'filled', 'b'); %FLEW BY PLANET
+        end
+        for l = 1:size(RV_out{isol},2)
+            if any(in{l})
+                if doPLOT
+                    scatter3(R_pla(in{l},1), R_pla(in{l},2), R_pla(in{l},3), 30, 'filled', 'r');
+                    text(R_pla(target_pla{isol},1), R_pla(target_pla{isol},2), R_pla(target_pla{isol},3),'Found one!', 'Fontsize',20,'HorizontalAlignment','center');
+                end
+                pause(1);
+                doBreak = 1;
+                l_break{isol} = l;
+                gamma_break{isol} = param_list(l,1);
+                yaw_break{isol} = param_list(l,2);
+                t_break{isol} = t_ahead;
+                sol_exist{isol} = 1;
+            end
+        end
+        if doPLOT
+            hold off;
+
+            axis equal;
+            grid on;
+            xlabel('X'); ylabel('Y'); zlabel('Z');
+            title(sprintf('Stage 1: t\\_ahead = %.2f', t_ahead));
+            xlim([-plotrange1,plotrange1]);
+            ylim([-plotrange1,plotrange1]);
+            zlim([-plotrange1,plotrange1]);
+            drawnow;
+        end
+
+        if doBreak == 1
+            fprintf('Solution number %1.0f\n VALID ✅\n',isol);
+            doBreak = 0;
+            break;
+        end
+
+        if k == numel(t_ahead_vals)
+            sol_exist{isol} = 0;
+            fprintf('Solution number %1.0f\n NOT VALID ❌ (possibly out of plane or too eccentric)\n',isol);
+            break;
+        end
+    end
+
+    if sol_exist{isol} == 0
+        continue;
+    end
+
+    toc1 = toc;
+    %========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+    tic;
+
+    %  .dP"Y8 888888    db     dP""b8 888888     888888 Yb        dP  dP"Yb
+    %  `Ybo."   88     dPYb   dP   `" 88__         88    Yb  db  dP  dP   Yb
+    %  o.`Y8b   88    dP__Yb  Yb  "88 88""         88     YbdPYbdP   Yb   dP
+    %  8bodP'   88   dP""""Yb  YboodP 888888       88      YP  YP     YbodP
+
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+    %                         PREPARATION from STAGE ONE                      %
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+    
+    fprintf('STAGE TWO: Refining solution number: %1.0f\n',isol);
+
+    %Alpha and delta net now refined to 9x13 values
+    delta_vals = [0,10,25,40,50,75,-10,-25,-40,-50,-75]/180*pi;
+    alpha_vals = [pi/2,0,0.125,0.25,0.5,0.75,1,1.25,1.4,-0.125,-0.25,-0.5,-0.75,-1,-1.25,1.4];
+    [Alpha, Delta] = meshgrid(alpha_vals, delta_vals);
+    alpha_vals = Alpha(:);
+    delta_vals = Delta(:);
+
+    if sol_exist{isol}
+
+        gamma = gamma_break{isol};
+        yaw   = yaw_break{isol};
+        
+        % Compute the base turn direction
+        Gamma_vec = cos(gamma)*that + sin(gamma)*rhat;
+        
+        % Apply yaw rotation about r̂ (Rodrigues' rotation)
+        Gamma_rot = Gamma_vec * cos(yaw) + ...
+                    cross(rhat, Gamma_vec) * sin(yaw) + ...
+                    rhat * dot(rhat, Gamma_vec) * (1 - cos(yaw));
+        
+        % Normalize to ensure direction unit
+        V_out_hat = Gamma_rot / norm(Gamma_rot);
+        
+        % Compute final state
+        RV_out{isol} = [RV_flyby(1:3,1); RV_flyby(4:6,1) + V_out_hat * v_in];
+
+        i_alpha_coast = solution_sampled(isol,6);
+        i_delta_coast = solution_sampled(isol,6);
+        alpha_coast{isol} = alpha_coast_vals(i_alpha_coast);
+        delta_coast{isol} = delta_coast_vals(i_delta_coast);
+        tof{isol} = solution_sampled(isol,5);
+        target_pla{isol} = solution_sampled(isol,2);
+    else
+        continue;
+    end
+
+
+    %========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+
+    if doPLOT
+        figure('Position', [100 100 1100 700]);
+    end
+    plotrange2 = 0.5*r0;
+    t_ahead_vals = [t_break{isol}:-0.005:t_break{isol}-0.02,t_break{isol}-0.020:-0.01:t_break{isol}-0.10];
+
+    RVori = RV_out{isol};
+
+    for k = 1:numel(t_ahead_vals)
+        t_ahead = t_ahead_vals(k);
+        tstep = t_ahead*T/300;
+        t_vals = tstart:tstep:tstart+t_ahead*T;
+        R_pla = PlaPos(tstart+t_ahead*T,data);
+        Rfinal1 = zeros(3,numel(alpha_vals));
+        for j = 1:numel(alpha_vals)
+            RV = RVori;
+
+            COE_out = RV2COE(RV,mu);
+            a_out = COE_out(1,:);
+            T_out = 2*pi*sqrt(a_out.^3/mu);
+
+            alpha = alpha_vals(j);
+            delta = delta_vals(j);
+            for ti = 1:numel(t_vals)
+                t = t_vals(ti);
+                a_sail = asail(alpha,delta,RV);
+                a_sailxyz = projxyz(RV)*a_sail;
+                a_sail_coast = asail(alpha_coast{isol},delta_coast{isol},RV);
+                a_sail_coastxyz = projxyz(RV)*a_sail_coast;
+                if t_ahead*T < sail_max*T_out
+                    RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                elseif t-tstart > t_ahead*T-sail_max*T_out
+                    RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                else
+                    RV=rk4orbit(t,RV,tstep,a_sail_coastxyz);
+                end
+            end
+            Rfinal1(:,j) = RV(1:3);
+        end
+        [F1,av1] = convhull(Rfinal1(1,:),Rfinal1(2,:),Rfinal1(3,:));
+        in = CheckPointPolyhedron(Rfinal1',F1,R_pla(target_pla{isol},:));
+        if doPLOT
+            clf;  % clear current figure
+            hold on;
+            scatter3(0, 0, 0, 50, 'filled', 'MarkerFaceColor', 'y');
+            trisurf(F1, Rfinal1(1,:), Rfinal1(2,:), Rfinal1(3,:), ...
+                'FaceColor','cyan','FaceAlpha',0.2,'EdgeAlpha',0);
+            scatter3(R_pla(:,1), R_pla(:,2), R_pla(:,3), 20, 'filled', 'g');
+
+            for i = 1:11
+                a_pla = data(i,5);
+                e_pla = data(i,6);
+                inc_pla = data(i,7)*pi/180;
+                RAAN_pla = data(i,8)*pi/180;
+                omega_pla = data(i,9)*pi/180;
+                r_path = a_pla.*(1-e_pla.^2)./(1+e_pla.*cos(f_vals));
+                R_path_pla{i} = [r_path.*(cos(f_vals+omega_pla)*cos(RAAN_pla)-sin(f_vals+omega_pla)*cos(inc_pla)*sin(RAAN_pla)),...
+                    r_path.*(cos(f_vals+omega_pla)*sin(RAAN_pla)+sin(f_vals+omega_pla)*cos(inc_pla)*cos(RAAN_pla)),...
+                    r_path.*(sin(f_vals+omega_pla)*sin(inc_pla))];
+                plot3(R_path_pla{i}(:,1), R_path_pla{i}(:,2), R_path_pla{i}(:,3), 'color', color(i,:), 'LineWidth',1);
+            end
+        end
+        R_pla_in = R_pla(target_pla{isol},:);
+
+        if ~in
+            if doPLOT
+                scatter3(R_pla(target_pla{isol},1), R_pla(target_pla{isol},2), R_pla(target_pla{isol},3), 30, 'filled', 'r');
+            end
+        end
+        for ia = 1:numel(alpha_vals)
+            dist(ia) =norm(R_pla_in'-Rfinal1(:,ia));
+        end
+        [dist_min,imin] = min(dist);
+
+        if doPLOT
+            scatter3(Rfinal1(1,:), Rfinal1(2,:), Rfinal1(3,:), 10,'b','filled');
+            scatter3(R_pla(target_pla{isol},1), R_pla(target_pla{isol},2), R_pla(target_pla{isol},3), 30, 'filled', 'r');
+        end
+        %SECOND LOOP SUBSAMPLING: take α-δ pair and subdivide
+        if ~in
+            delta_vals = linspace(delta_vals(imin)-pi/10,delta_vals(imin)+pi/12,10);
+            alpha_vals = linspace(alpha_vals(imin)-pi/10,alpha_vals(imin)+pi/12,10);
+            [Alpha, Delta] = meshgrid(alpha_vals, delta_vals);
+            alpha_vals = Alpha(:);
+            delta_vals = Delta(:);
+            Rfinal1 = zeros(3,numel(alpha_vals));
+            for j = 1:numel(alpha_vals)
+                RV = RVori;
+                %Integration
+                alpha = alpha_vals(j);
+                delta = delta_vals(j);
+                for ti = 1:numel(t_vals)
+                    t = t_vals(ti);
+                    a_sail = asail(alpha,delta,RV);
+                    a_sailxyz = projxyz(RV)*a_sail;
+                    a_sail_coast = asail(alpha_coast{isol},delta_coast{isol},RV);
+                    a_sail_coastxyz = projxyz(RV)*a_sail_coast;
+                    if t_ahead*T < sail_max*T_out
+                        RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                    elseif t-tstart > t_ahead*T-sail_max*T_out
+                        RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                    else
+                        RV=rk4orbit(t,RV,tstep,a_sail_coastxyz);
+                    end
+                end
+                Rfinal1(:,j) = RV(1:3);
+            end
+            if doPLOT
+                scatter3(Rfinal1(1,:), Rfinal1(2,:), Rfinal1(3,:), 10 ,'b');
+            end
+            for ia = 1:numel(Rfinal1)/3
+                dist(ia) =norm(R_pla_in'-Rfinal1(:,ia));
+            end
+            [dist_min,imin] = min(dist);
+            if doPLOT
+                plot3([R_pla(target_pla{isol},1),Rfinal1(1,imin)],[R_pla(target_pla{isol},2),Rfinal1(2,imin)],[R_pla(target_pla{isol},3),Rfinal1(3,imin)]);
+            end
+        end
+
+        if doPLOT
+            hold off;
+            axis equal;
+            grid on;
+            xlabel('X'); ylabel('Y'); zlabel('Z');
+            title(sprintf('Stage 2: t\\_ahead = %.3f', t_ahead));
+            xlim(R_pla_in(1)+[-plotrange2,plotrange2]);
+            ylim(R_pla_in(2)+[-plotrange2,plotrange2]);
+            zlim(R_pla_in(3)+[-plotrange2,plotrange2]);
+            drawnow;
+        end
+        if ~in
+            break;
+        end
+    end
+    toc2 = toc;
+
+    tic;
+
+    %========================== .˳˳.⋅ॱ˙˙ॱ⋅.˳˳.⋅ॱ˙˙ॱᐧ.˳˳.⋅========================%
+    tic;
+
+    % .dP"Y8 888888    db     dP""b8 888888     888888 88""Yb 888888
+    % `Ybo."   88     dPYb   dP   `" 88__         88   88__dP 88__
+    % o.`Y8b   88    dP__Yb  Yb  "88 88""         88   88"Yb  88""
+    % 8bodP'   88   dP""""Yb  YboodP 888888       88   88  Yb 888888
+
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+    fprintf('STAGE THREE: Refining solution number: %1.0f\n',isol);
+
+    base = 6;
+    Timewise_step = 1*1e-3*base.^(0:-1:-30);
+    Timewise_range = [15,10,10,10,10,10,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8];
+    Timewise_size = 20*base.^(0:1:30);
+    Timewise_res = 3+zeros(1,30);
+    Spacewise_size = 3*Timewise_size;
+    Spacewise_res = 5+zeros(1,30);
+
+    for loop = 1:1
+        delta_vals = [linspace(delta_vals(imin)-pi/Timewise_size(loop),delta_vals(imin)+pi/Timewise_size(loop),Timewise_res(loop)),50/180*pi,25/180*pi,-50/180*pi,-25/180*pi];
+        alpha_vals = [linspace(alpha_vals(imin)-pi/Timewise_size(loop),alpha_vals(imin)+pi/Timewise_size(loop),Timewise_res(loop)),0.5,-0.5,0.25,-0.25];
+        [Alpha, Delta] = meshgrid(alpha_vals, delta_vals);
+        alpha_vals = Alpha(:);
+        delta_vals = Delta(:);
+        alpha_vals = [alpha_vals;0];
+        delta_vals = [delta_vals;pi/2];
+
+        %THIRD (3-max) LOOP: SAME AS SECOND LOOP JUST SMALLER AND MORE PRECISE
+        t_ahead_break = t_ahead;
+        if doPLOT
+            figure('Position', [100 100 1100 700]);
+        end
+        plotrange2 = 2/Timewise_size(loop)*r0;
+        t_ahead_vals = t_ahead_break-Timewise_step(loop)*Timewise_range(loop):Timewise_step(loop):t_ahead_break+Timewise_step(loop)*Timewise_range(loop)+Timewise_step(loop)*Timewise_range(loop)/2;
+        nk = numel(t_ahead_vals);
+        clear Rfinal1;
+        for k = 1:numel(t_ahead_vals)
+            t_ahead = t_ahead_vals(k);
+            tstep = t_ahead*T/300;
+            t_vals = tstart:tstep:tstart+t_ahead*T;
+            R_pla = PlaPos(tstart+t_ahead*T,data);
+            Rfinal1 = zeros(3,numel(alpha_vals));
+            for j = 1:numel(alpha_vals)
+                RV = RVori;
+
+                COE_out = RV2COE(RV,mu);
+                a_out = COE_out(1,:);
+                T_out = 2*pi*sqrt(a_out.^3/mu);
+
+                alpha = alpha_vals(j);
+                delta = delta_vals(j);
+                for ti = 1:numel(t_vals)
+                    t = t_vals(ti);
+                    a_sail = asail(alpha,delta,RV);
+                    a_sailxyz = projxyz(RV)*a_sail;
+                    a_sail_coast = asail(alpha_coast{isol},delta_coast{isol},RV);
+                    a_sail_coastxyz = projxyz(RV)*a_sail_coast;
+                    if t_ahead*T < sail_max*T_out
+                        RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                    elseif t-tstart > t_ahead*T-sail_max*T_out
+                        RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                    else
+                        RV=rk4orbit(t,RV,tstep,a_sail_coastxyz);
+                    end
+                end
+                Rfinal1(:,j) = RV(1:3);
+            end
+            [F1,av1] = convhull(Rfinal1(1,:),Rfinal1(2,:),Rfinal1(3,:));
+            in = CheckPointPolyhedron(Rfinal1',F1,R_pla(target_pla{isol},:));
+            if doPLOT
+                clf;  % clear current figure
+                hold on;
+                for i = 1:11
+                    a_pla = data(i,5);
+                    e_pla = data(i,6);
+                    inc_pla = data(i,7)*pi/180;
+                    RAAN_pla = data(i,8)*pi/180;
+                    omega_pla = data(i,9)*pi/180;
+                    r_path = a_pla.*(1-e_pla.^2)./(1+e_pla.*cos(f_vals));
+                    R_path_pla{i} = [r_path.*(cos(f_vals+omega_pla)*cos(RAAN_pla)-sin(f_vals+omega_pla)*cos(inc_pla)*sin(RAAN_pla)),...
+                        r_path.*(cos(f_vals+omega_pla)*sin(RAAN_pla)+sin(f_vals+omega_pla)*cos(inc_pla)*cos(RAAN_pla)),...
+                        r_path.*(sin(f_vals+omega_pla)*sin(inc_pla))];
+                    plot3(R_path_pla{i}(:,1), R_path_pla{i}(:,2), R_path_pla{i}(:,3), 'color', color(i,:), 'LineWidth',1);
+                end
+                scatter3(0, 0, 0, 50, 'filled', 'MarkerFaceColor', 'y');
+                trisurf(F1, Rfinal1(1,:), Rfinal1(2,:), Rfinal1(3,:), ...
+                    'FaceColor','cyan','FaceAlpha',0.2,'EdgeAlpha',0);
+                scatter3(R_pla(:,1), R_pla(:,2), R_pla(:,3), 20, 'filled', 'g');
+                scatter3(Rfinal1(1,:), Rfinal1(2,:), Rfinal1(3,:), 10 ,'b');
+                scatter3(R_pla(target_pla{isol},1), R_pla(target_pla{isol},2), R_pla(target_pla{isol},3), 30, 'filled', 'r');
+            end
+            R_pla_in = R_pla(target_pla{isol},:);
+            clear dist;
+            for ia = 1:numel(alpha_vals)
+                dist(ia) =norm(R_pla_in'-Rfinal1(:,ia));
+            end
+            [dist_min,imin] = min(dist);
+
+            %THIRD LOOP SUBSAMPLING: take α-δ pair and subdivide
+            if in
+                if doPLOT
+                    scatter3(R_pla(target_pla{isol},1), R_pla(target_pla{isol},2), R_pla(target_pla{isol},3), 30, 'filled', 'r');
+                end
+                delta_vals = linspace(delta_vals(imin)-pi/Spacewise_size(loop),delta_vals(imin)+pi/Spacewise_size(loop),Spacewise_res(loop));
+                alpha_vals = linspace(alpha_vals(imin)-pi/Spacewise_size(loop),alpha_vals(imin)+pi/Spacewise_size(loop),Spacewise_res(loop));
+                [Alpha, Delta] = meshgrid(alpha_vals, delta_vals);
+                alpha_vals = Alpha(:);
+                delta_vals = Delta(:);
+                Rfinal1 = zeros(3,numel(alpha_vals));
+                for j = 1:numel(alpha_vals)
+                    RV = RVori;
+                    %Integration
+                    alpha = alpha_vals(j);
+                    delta = delta_vals(j);
+                    for ti = 1:numel(t_vals)
+                        t = t_vals(ti);
+                        a_sail = asail(alpha,delta,RV);
+                        a_sailxyz = projxyz(RV)*a_sail;
+                        a_sail_coast = asail(alpha_coast{isol},delta_coast{isol},RV);
+                        a_sail_coastxyz = projxyz(RV)*a_sail_coast;
+                        if t_ahead*T < sail_max*T_out
+                            RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                        elseif t-tstart > t_ahead*T-sail_max*T_out
+                            RV=rk4orbit(t,RV,tstep,a_sailxyz);
+                        else
+                            RV=rk4orbit(t,RV,tstep,a_sail_coastxyz);
+                        end
+                    end
+                    Rfinal1(:,j) = RV(1:3);
+                end
+                if doPLOT
+                    scatter3(Rfinal1(1,:), Rfinal1(2,:), Rfinal1(3,:), 10 ,'b','filled');
+                end
+                clear dist;
+                for ia = 1:numel(Rfinal1)/3
+                    dist(ia) = norm(R_pla_in'-Rfinal1(:,ia));
+                end
+                [dist_min,imin] = min(dist);
+                if doPLOT
+                    plot3([R_pla(target_pla{isol},1),Rfinal1(1,imin)],[R_pla(target_pla{isol},2),Rfinal1(2,imin)],[R_pla(target_pla{isol},3),Rfinal1(3,imin)]);
+                end
+            end
+            if doPLOT
+                hold off;
+                axis equal;
+                grid on;
+                xlabel('X'); ylabel('Y'); zlabel('Z');
+                title(sprintf('Stage 3: t\\_ahead = %.12f', t_ahead));
+                xlim(R_pla_in(1)+[-plotrange2,plotrange2]);
+                ylim(R_pla_in(2)+[-plotrange2,plotrange2]);
+                zlim(R_pla_in(3)+[-plotrange2,plotrange2]);
+                drawnow;
+            end
+            if in
+                fprintf('Closest Trajectory = %1.3f km\n', dist_min);
+                break;
+            end
+        end
+    end
+    toc3 = toc;
+
+
+    % .dP"Y8 888888    db     dP""b8 888888     888888  dP"Yb  88   88 88""Yb
+    % `Ybo."   88     dPYb   dP   `" 88__       88__   dP   Yb 88   88 88__dP
+    % o.`Y8b   88    dP__Yb  Yb  "88 88""       88""   Yb   dP Y8   8P 88"Yb
+    % 8bodP'   88   dP""""Yb  YboodP 888888     88      YbodP  `YbodP' 88  Yb
+
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+    tic;
+    t_res_la = [2000,2000,3000,4000,5000,8000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000,10000];
+    increment = 1e-12;
+
+    fprintf('STAGE FOUR: Refining solution number: %1.0f\n',isol);
+
+    %FORTH STAGE: using linear interpolation to reach convergence
+    if doPLOT
+        figure('Position', [100 100 1100 700]);
+        text(0.2,0.5,'LINEAR ALGEBRA IN PROGRESS (∪｡∪)｡｡｡zzZ	', 'Fontsize',20);
+        title('Stage 4');
+        hold off;
+        drawnow;
+    end
+    Rf_min = Rfinal1(:,imin);
+    R_pla = PlaPos(tstart+t_ahead*T,data);
+    R_pla_in = R_pla(target_pla{isol},:);
+    Delta_R = R_pla_in'-Rf_min;
+    alpha_min = alpha_vals(imin);
+    delta_min = delta_vals(imin);
+
+    for laloop = 1:30
+
+        alpha_vals=[alpha_min,alpha_min+increment,alpha_min,alpha_min];
+        delta_vals=[delta_min,delta_min,delta_min+increment,delta_min];
+        t_ahead_vals = [t_ahead,t_ahead,t_ahead,t_ahead+increment];
+        Rfinal1 = zeros(3,4);
+
+        for j = 1:numel(alpha_vals)
+            R_pla = PlaPos(tstart+t_ahead_vals(j)*T,data);
+            R_pla_in = R_pla(target_pla{isol},:);
+            RV = RVori;
+            %Integration
+            alpha = alpha_vals(j);
+            delta = delta_vals(j);
+            
+            RV = sailPropRK(RV, tstart, T, t_ahead_vals(j), sail_max, T_out, ...
+                                         alpha, delta, ...
+                                         alpha_coast{isol}, delta_coast{isol}, ...
+                                         t_res_la(laloop));
+
+            Rfinal1(1:3,j) = RV(1:3)-R_pla_in';
+        end
+
+        Ra = (Rfinal1(:,2)-Rfinal1(:,1))/increment;
+        Rd = (Rfinal1(:,3)-Rfinal1(:,1))/increment;
+        Rt = (Rfinal1(:,4)-Rfinal1(:,1))/increment;
+
+        J = [Ra Rd Rt];
+        dP = J \ Delta_R;
+        alpha_new = alpha_min + dP(1);
+        delta_new = delta_min + dP(2);
+        t_ahead_new = t_ahead + dP(3);
+
+        alpha_vals = alpha_new;
+        delta_vals = delta_new;
+        t_ahead = t_ahead_new;
+
+        Rfinal1 = zeros(1,3);
+        for j = 1:numel(alpha_vals)
+            RV = RVori;
+            %Integration
+            alpha = alpha_vals(j);
+            delta = delta_vals(j);
+            
+
+            RV = sailPropRK(RV, tstart, T, t_ahead, sail_max, T_out, ...
+                                         alpha, delta, ...
+                                         alpha_coast{isol}, delta_coast{isol}, ...
+                                         t_res_la(laloop));
+
+            Rfinal1(1:3,j) = RV(1:3);
+            dist = norm(R_pla_in'-Rfinal1(1:3,1));
+            fprintf('Linear Interpolation %1.f = %1.3f km, t_end = %1.2f s\n', laloop ,dist,t_vals(end));
+        end
+
+        R_pla = PlaPos(tstart+t_ahead*T,data);
+        R_pla_in = R_pla(target_pla{isol},:);
+        Delta_R = R_pla_in'-Rfinal1;
+        alpha_min = alpha;
+        delta_min = delta;
+        if dist < 1e-2
+            break;
+        end
+    end
+
+    if doPLOT
+        figure('Position', [100 100 1100 700]);
+        text(0.2,0.5,'LINEAR ALGEBRA IN PROGRESS...', 'Fontsize',20);
+        hold on;
+        if dist > 0.1
+            text(0.2,0.3,'did not converge (ﾉಥ益ಥ)ﾉ', 'Fontsize',20);
+        else
+            text(0.2,0.3,'DONE (o\^▽\^o)', 'Fontsize',20);
+        end
+        title('Stage 4');
+    end
+
+    if dist > 0.1
+        fprintf('Final Close Approach = %1.3f km\n', dist);
+    elseif dist > 0.0001
+        fprintf('Final Close Approach = %1.3f m\n', dist*1000);
+    elseif dist > 0.0000001
+        fprintf('Final Close Approach = %1.3f mm\n', dist*1000000);
+    else
+        fprintf('Final Close Approach = %1.3f μm\n', dist*1000000000);
+    end
+    toc4 = toc;
+    tic;
+
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+    % .dP"Y8 888888    db     dP""b8 888888   888888 88 Yb    dP 888888 
+    % `Ybo."   88     dPYb   dP   `" 88__     88__   88  Yb  dP  88__   
+    % o.`Y8b   88    dP__Yb  Yb  "88 88""     88""   88   YbdP   88""   
+    % 8bodP'   88   dP""""Yb  YboodP 888888   88     88    YP    888888 
+
+    %===============================︵‿︵‿୨♡୧‿︵‿︵============================%
+
+    fprintf('STAGE FIVE: Refining solution number: %1.0f\n',isol);
+
+    t_res = 10000;
+    R_pla = PlaPos(tstart+t_ahead*T,data);
+    R_pla_in = R_pla(target_pla{isol},:);
+    RV = RVori;
+    
+    [RV, result_table] = sailPropRK_table(RV, tstart, T, t_ahead, sail_max, T_out, ...
+                                         alpha_min, delta_min, ...
+                                         alpha_coast{isol}, delta_coast{isol}, ...
+                                         t_res);
+    dist = norm(R_pla_in'-RV(1:3));
+    fprintf('Dist verification = %1.3f m\n',dist*1000);
+
+
+    fprintf('\n[Quick RK4 segment check — 1e-4 tolerance]\n');
+    
+    tol = 1e-4;
+    num_checks = 100; % number of segments to test
+    substeps = 100;   % internal RK4 refinement
+    mu = 139348062043.343;
+    A = 15000; m = 500; C = 5.4026e-6; r0 = 149597870.691; % km
+    
+    t = result_table(:,3);
+    r = result_table(:,4:6);
+    v = result_table(:,7:9);
+    u = result_table(:,10:12);
+    
+    N = numel(t);
+    idx = round(linspace(1, N-1, num_checks));
+    flags = strings(num_checks,1);
+    
+    for n = 1:num_checks
+        i = idx(n);
+        if t(i+1) == t(i)
+            flags(n) = "—"; % skip duplicate time rows
+            continue;
+        end
+    
+        X0 = [r(i,:)'; v(i,:)'];
+        Xf = [r(i+1,:)'; v(i+1,:)'];
+        dt = t(i+1) - t(i);
+        h = dt / substeps;
+    
+        u0 = u(i,:)'/norm(u(i,:));
+        u1 = u(i+1,:)'/norm(u(i+1,:));
+        X = X0;
+    
+        for k = 1:substeps
+            frac = (k-1)/(substeps-1);
+            u_interp = (1-frac)*u0 + frac*u1;
+            u_interp = u_interp / norm(u_interp);
+            rmag = norm(X(1:3));
+            cosTheta = dot(u_interp,[1;0;0]);
+            a_mag = 2*C*A/m*(r0/rmag)^2*(cosTheta)^2;
+            a_sailxyz = a_mag*u_interp/1000; % km→m adjustment if needed
+            X = rk4orbit(t(i)+(k-1)*h, X, h, a_sailxyz);
+        end
+    
+        err_rel = norm(X - Xf) / max(norm(Xf - X0),1e-12);
+        flags(n) = sprintf('%03d%s', n*10, tern(err_rel<tol,'✅','❌'));
+    end
+    
+    % print neatly: 10 results per line
+    for j = 1:10:num_checks
+        fprintf('%s\n', strjoin(flags(j:min(j+9,num_checks)), ' '));
+    end
+
+%END
+
+    toc5 = toc;
+    fprintf('Calculation time = %1.2f + %1.2f + %1.2f + %1.2f + %1.2f + %1.2f s = %1.2f s\n', toc0,toc1,toc2,toc3,toc4,toc5,toc0+toc1+toc2+toc3+toc4+toc5);
+    fprintf('α = %1.7f deg, δ = %1.7f deg, γ = %1.4f deg\n', alpha_new*180/pi, delta_new*180/pi, gamma*180/pi);
+    fprintf('α_coast = %1.0f deg, δ_coast = %1.0f deg\n', alpha_coast{isol}*180/pi, delta_coast{isol}*180/pi);
+    conv = 365.25 * 86400; % seconds per year
+
+    saveResultTable(result_table, flyby_pla, target_pla{isol}, tstart, tstart + t_ahead*T);
+
+    t0 = tstart;
+    t1 = tstart + t_ahead*T - sail_max*T_out;
+    t2 = tstart + t_ahead*T;
+
+    % convert seconds to years, days, seconds
+    f = @(t) deal(floor(t/conv), floor(mod(t,conv)/86400), mod(t,86400));
+
+    [y0,d0,s0] = f(t0);
+    [y1,d1,s1] = f(t1);
+    [y2,d2,s2] = f(t2);
+
+    fprintf(['t_start    = %4dy %3dd %7.1fs\n' ...
+        't_terminal = %4dy %3dd %7.1fs\n' ...
+        't_arrival  = %4dy %3dd %7.1fs\n'], ...
+        y0,d0,s0, y1,d1,s1, y2,d2,s2);
+
+    alpha_converged(isol,:) = alpha_new;
+    delta_converged(isol,:) = delta_new;
+    alpha_coast_converged(isol,:) = alpha_coast{isol};
+    delta_coast_converged(isol,:) = delta_coast{isol};
+    t0_converged(isol,:) = t0;
+    t1_converged(isol,:) = t1;
+    t2_converged(isol,:) = t2;
+    RV_converged(isol,:) = RV';
+    pla_dep(isol,:) = flyby_pla;
+    pla_arr(isol,:) = target_pla{isol};
+
+    %catch
+    %end
+end
+
+%sonlutions_converged = struct('pla_dep',pla_dep,'pla_arr',pla_arr,...
+%    'alpha_terminal',alpha_converged,'delta_terminal',delta_converged,...
+%    'alpha_coast',alpha_coast_converged,'delta_coast',delta_coast_converged,...
+%    't_dep',t0_converged,'t_terminal',t1_converged,'t_arr',t2_converged,...
+%    'RV_arr',RV_converged);
+
+%{　この方面の下が興味にしないでください wwwwww
+%{　อยากรู้จริงๆว่าแมทแลยนี่ตั้งตัวแปรเป็นภาษาอื่นได้ป้ะ5555
+%{
+
+d88888b db    db d8b   db  .o88b. d888888b d888888b  .d88b.  d8b   db .d8888. 
+88'     88    88 888o  88 d8P  Y8 `~~88~~'   `88'   .8P  Y8. 888o  88 88'  YP 
+88ooo   88    88 88V8o 88 8P         88       88    88    88 88V8o 88 `8bo.   
+88~~~   88    88 88 V8o88 8b         88       88    88    88 88 V8o88   `Y8b. 
+88      88b  d88 88  V888 Y8b  d8    88      .88.   `8b  d8' 88  V888 db   8D 
+YP      ~Y8888P' VP   V8P  `Y88P'    YP    Y888888P  `Y88P'  VP   V8P `8888Y' 
+
+%}
+function s = tern(c,a,b)
+if c, s=a; else, s=b; end
+end
+
+function RV = sailPropRK(RV, tstart, T, t_ahead, sail_max, T_out, ...
+                         alpha, delta, alpha_coast, delta_coast, t_res)
+
+    total_time = t_ahead * T;
+    coast_time = total_time - sail_max * T_out;
+    t_switch   = tstart + coast_time; % switch between coast and sail
+
+    % --- Case 1: all sail phase ---
+    if total_time <= sail_max * T_out
+        tstep = total_time / t_res;
+        t_vals = tstart + (0:t_res-1) * tstep;
+        for ti = 1:t_res
+            t = t_vals(ti);
+            a_sail = asail(alpha, delta, RV);
+            a_sailxyz = projxyz(RV) * a_sail;
+            RV = rk4orbit(t, RV, tstep, a_sailxyz);
+        end
+        return;
+    end
+
+    % --- Case 2: coast + sail ---
+    % Coast phase
+    tstep1 = coast_time / t_res;
+    t_vals1 = tstart + (0:t_res-1) * tstep1;
+    for ti = 1:t_res
+        t = t_vals1(ti);
+        a_sail_coast = asail(alpha_coast, delta_coast, RV);
+        a_sail_coastxyz = projxyz(RV) * a_sail_coast;
+        RV = rk4orbit(t, RV, tstep1, a_sail_coastxyz);
+    end
+
+    % Sail phase
+    tstep2 = (total_time - coast_time) / t_res; % = sail_max*T_out / t_res
+    t_vals2 = t_switch + (0:t_res-1) * tstep2;
+    for ti = 1:t_res
+        t = t_vals2(ti);
+        a_sail = asail(alpha, delta, RV);
+        a_sailxyz = projxyz(RV) * a_sail;
+        RV = rk4orbit(t, RV, tstep2, a_sailxyz);
+    end
+end
+
+function [RV, result_table] = sailPropRK_table(RV, tstart, T, t_ahead, sail_max, T_out, ...
+                                               alpha, delta, alpha_coast, delta_coast, t_res)
+
+    % Preallocate result table
+    % Columns: [body_id flag t r(3) v(3) u(3)]
+    result_table = [];
+
+    total_time = t_ahead * T;
+    coast_time = total_time - sail_max * T_out;
+    t_switch   = tstart + coast_time; % switch between coast and sail
+
+    body_id = 0;
+    flag = 1;
+
+    % ==============================================================
+    % --- CASE 1: all sail phase ---
+    % ==============================================================
+    if total_time <= sail_max * T_out
+        tstep = total_time / t_res;
+        t_vals = tstart + (0:t_res) * tstep; % include endpoint
+
+        for ti = 1:numel(t_vals)
+            t = t_vals(ti);
+            a_sail = asail(alpha, delta, RV);
+            a_sailxyz = projxyz(RV) * a_sail;
+            u = -a_sailxyz / norm(a_sailxyz); % heliocentric sail normal (opposite accel)
+
+            % store one line
+            result_table = [result_table;
+                body_id, flag, t, RV(1:3)', RV(4:6)', u'];
+
+            if ti < numel(t_vals)
+                RV = rk4orbit(t, RV, tstep, a_sailxyz);
+            end
+        end
+        return;
+    end
+
+    % ==============================================================
+    % --- CASE 2: coast phase + sail phase ---
+    % ==============================================================
+
+    % --- Coast phase ---
+    tstep1 = coast_time / t_res;
+    t_vals1 = tstart + (0:t_res) * tstep1; % include endpoint
+    for ti = 1:numel(t_vals1)
+        t = t_vals1(ti);
+        a_sail_coast = asail(alpha_coast, delta_coast, RV);
+        a_sail_coastxyz = projxyz(RV) * a_sail_coast;
+        u = -a_sail_coastxyz / norm(a_sail_coastxyz);
+
+        result_table = [result_table;
+            body_id, flag, t, RV(1:3)', RV(4:6)', u'];
+
+        if ti < numel(t_vals1)
+            RV = rk4orbit(t, RV, tstep1, a_sail_coastxyz);
+        end
+    end
+
+    % --- Duplicate line for discontinuous control change ---
+    % (same t, r, v, but new control direction for sail phase)
+    a_sail = asail(alpha, delta, RV);
+    a_sailxyz = projxyz(RV) * a_sail;
+    u = -a_sailxyz / norm(a_sailxyz);
+
+    result_table = [result_table;
+        body_id, flag, t_vals1(end), RV(1:3)', RV(4:6)', u'];
+
+    % --- Sail phase ---
+    tstep2 = (total_time - coast_time) / t_res; % = sail_max*T_out / t_res
+    t_vals2 = t_switch + (0:t_res) * tstep2; % include endpoint
+
+    for ti = 1:numel(t_vals2)
+        t = t_vals2(ti);
+        a_sail = asail(alpha, delta, RV);
+        a_sailxyz = projxyz(RV) * a_sail;
+        u = -a_sailxyz / norm(a_sailxyz);
+
+        result_table = [result_table;
+            body_id, flag, t, RV(1:3)', RV(4:6)', u'];
+
+        if ti < numel(t_vals2)
+            RV = rk4orbit(t, RV, tstep2, a_sailxyz);
+        end
+    end
+end
+
+
+
+function X = rk4orbit(t,X,h,a_sailxyz)
+% Numerical Solution, Runge-Kutta 4th Order
+k1 = forbit(t,X,a_sailxyz);
+k2 = forbit(t+h/2,X+k1*h/2,a_sailxyz);
+k3 = forbit(t+h/2,X+k2*h/2,a_sailxyz);
+k4 = forbit(t+h,X+k3*h,a_sailxyz);
+
+% Step forward in time
+X = X+(h/6)*(k1+2*k2+2*k3+k4);
+
+end
+
+function Xdot = forbit(t,X,a_sailxyz)
+
+mu = 139348062043.343;    % Gravitational constant (m^3/s^2)
+r = X(1:3);                % Position (m)
+v = X(4:6);                % Velocity (ms^2)
+
+dr = v;
+dv = (-mu/(norm(r))^3).*r + a_sailxyz; % Newton's law of gravity
+Xdot = [dr; dv];
+
+end
+
+function a_sail = asail(alpha,delta,RV)
+m = 500;
+A = 15000;
+C = 5.4026 * 10^-6;
+r0 = 149597870.691; %[km]
+r = norm(RV(1:3));
+u_n = [cos(alpha),-sin(alpha),0;
+    sin(alpha),cos(alpha),0;
+    0,0,1]*[cos(-delta),0,sin(-delta);
+    0,1,0;
+    -sin(-delta),0,cos(-delta)]*[1,0,0]';
+a_sail = 2*C*A/m*(r0/r)^2 * dot(u_n,[1,0,0])^2 * u_n./norm(u_n)/1000;
+end
+
+function proj = projxyz(RV)
+rhat = RV(1:3)/norm(RV(1:3));
+vhat = RV(4:6)/norm(RV(4:6));
+nhat = cross(rhat,vhat)/norm(cross(rhat,vhat));
+that = cross(nhat,rhat)/norm(cross(nhat,rhat));
+proj = [rhat,that,nhat];
+end
+
+function I=CheckPointPolyhedron(V,F,vp)
+
+for i=1:1:size(vp,1)
+
+    omega=0;
+    for j=1:1:size(F,1)
+        omega=omega+Solid_Angle_Triangle(vp(i,:),V(F(j,1),:),V(F(j,2),:),V(F(j,3),:));
+    end
+
+    if abs(omega)>2*pi
+        I(i)=true;
+    else
+        I(i)=false;
+    end
+
+end
+
+end
+
+function omega=Solid_Angle_Triangle(p,va,vb,vc)
+
+r_pa=p-va; norm_r_pa=norm(r_pa);
+r_pb=p-vb; norm_r_pb=norm(r_pb);
+r_pc=p-vc; norm_r_pc=norm(r_pc);
+
+omega=2*atan2(dot(r_pa,cross(r_pb,r_pc)),norm_r_pa*norm_r_pb*norm_r_pc+dot(r_pa,r_pb)*norm_r_pc+dot(r_pa,r_pc)*norm_r_pb+dot(r_pb,r_pc)*norm_r_pa);
+
+end
+
+function R = PlaPos(t,data)
+
+planet_id     = data(:,1);
+mu_pla = data(:,3);
+r_pla = data(:,4);
+a_pla = data(:,5);
+ecc_pla = data(:,6);
+inc_pla     = data(:,7)/180*pi;
+RAAN_pla       = data(:,8)/180*pi;
+omega_pla  = data(:,9)/180*pi;
+M0_pla = data(:,10)/180*pi;
+weight_pla        = data(:,11);
+
+mu = 139348062043.343; %[km^3/s^2]
+AU = 149597870.691; %[km]
+
+n = sqrt(mu ./ a_pla.^3);
+
+M = M0_pla(:) + n(:).*t;
+E = M;
+for iter = 1:20
+    E = E - (E - ecc_pla.*sin(E) - M)./(1 - ecc_pla.*cos(E));
+end
+f_pla = 2*atan(sqrt((1+ecc_pla)./(1-ecc_pla)).*tan(E/2));
+
+r_pla = a_pla.*(1-ecc_pla.^2)./(1+ecc_pla.*cos(f_pla));
+
+R = [r_pla.*(cos(f_pla+omega_pla).*cos(RAAN_pla)-sin(f_pla+omega_pla).*cos(inc_pla).*sin(RAAN_pla)),...
+    r_pla.*(cos(f_pla+omega_pla).*sin(RAAN_pla)+sin(f_pla+omega_pla).*cos(inc_pla).*cos(RAAN_pla)),...
+    r_pla.*(sin(f_pla+omega_pla).*sin(inc_pla))];
+
+
+end
+
+function [arec,erec,f0rec] = lambert(r1,r2,eps,mu,TOF)
+
+tol = 0.01;
+sgn = sign(r2 - r1);
+inv_mu = 1/sqrt(mu);
+n_loops_max = 10;
+
+f0min = atan((cos(eps)-r1/r2)/sin(eps));
+A = (r1/r2) - cos(eps);
+B = sin(eps);
+f0max1 = atan2(B, A) + acos((1 - (r1/r2))/sqrt(A^2 + B^2));
+f0max2 = atan2(B, A) - acos((1 - (r1/r2))/sqrt(A^2 + B^2));
+f0maxR = atan((cos(eps)-1)/sin(eps));
+
+if eps < pi
+    if r2 > r1
+        f0range = [f0min,f0max1];
+        f0rangeMini = [f0max1,f0max2];
+    else
+        f0range = [f0max1-2*pi,f0min];
+        f0rangeMini = [f0max1-2*pi,f0max2];
+    end
+else
+    if r2 > r1
+        f0range = [f0maxR-pi,f0max1];
+        f0rangeMini = [f0max1,f0max2];
+    else
+        f0range = [f0max1-2*pi,f0maxR-pi];
+        f0rangeMini = [f0max1-2*pi,f0max2];
+    end
+end
+
+n_calc = 0;
+
+while true
+    n_calc = n_calc+1;
+    f0 = (f0range(1)+f0range(2))/2;
+    ecc = ((1-r1/r2)/(cos(f0)*r1/r2-cos(f0+eps)));
+    a = r1*(1+ecc*cos(f0))/(1-ecc^2);
+    if ecc < 1
+        k = sqrt((1 - ecc) / (1 + ecc));
+        E0 = 2 * atan(k * tan(f0/2));
+        E2 = 2 * atan(k * tan((f0 + eps)/2));
+        M0 = (E0-ecc*sin(E0));
+        M2 = (E2-ecc*sin(E2));
+    else
+        k = sqrt((ecc - 1) / (ecc +1));
+        H0 = 2 * atanh(k * tan(f0/2));
+        H2 = 2 * atanh(k * tan((f0 + eps)/2));
+        M0 = (ecc*sinh(H0)-H0);
+        M2 = (ecc*sinh(H2)-H2);
+    end
+    M = M2-M0 + 2*pi*(M2<M0);
+    tof = M*abs(a)*sqrt(abs(a)/mu);
+    if abs(tof - TOF) < tol
+        break;
+    end
+    if sgn*(tof - TOF) > 0
+        f0range(2) = f0;
+    else
+        f0range(1) = f0;
+    end
+
+end
+
+arec = a;
+erec = ecc;
+f0rec = f0;
+
+endloop = 0;
+skip = 0;
+for loop = 1:n_loops_max
+    if skip
+        break;
+    end
+
+    f0rangeM = f0rangeMini;
+    n = 0;
+    while true
+        n = n+1;
+        n_calc = n_calc+1;
+        f0(1) = (f0rangeM(1)+f0rangeM(2))/2 - 0.0001;
+        f0(2) = (f0rangeM(1)+f0rangeM(2))/2 + 0.0001;
+        ecc = ((1-r1/r2)./(cos(f0)*r1/r2-cos(f0+eps)));
+        a = r1*(1+ecc.*cos(f0))./(1-ecc.^2);
+        k = sqrt((1 - ecc) ./ (1 + ecc));
+        E0 = 2 * atan(k .* tan(f0/2));
+        E2 = 2 * atan(k .* tan((f0 + eps)/2));
+        M0 = (E0-ecc.*sin(E0));
+        M2 = (E2-ecc.*sin(E2));
+        M = M2-M0 + 2*pi*(M2(1)<M0(1));
+        tof = (2*pi*loop+M)*a(2)*sqrt(a(2))*inv_mu;
+        if tof(1) < TOF
+            break;
+        else
+            if tof(2) > tof(1)
+                f0rangeM(1) = f0(1);
+            else
+                f0rangeM(2) = f0(1);
+            end
+        end
+        if n > 12
+            endloop = 1;
+            break;
+        end
+    end
+
+    if endloop
+        break;
+    end
+
+    f0min = f0(1);
+    tofmin = tof(1);
+
+    f0rangeMleft = [f0rangeM(1),f0min];
+    f0rangeMright = [f0min,f0rangeM(2)];
+    while true
+        n_calc = n_calc+2;
+        f0(1) = (f0rangeMleft(1)+f0rangeMleft(2))/2;
+        f0(2) = (f0rangeMright(1)+f0rangeMright(2))/2;
+        ecc = ((1-r1/r2)./(cos(f0)*r1/r2-cos(f0+eps)));
+        a = r1*(1+ecc.*cos(f0))./(1-ecc.^2);
+        k = sqrt((1 - ecc) ./ (1 + ecc));
+        E0 = 2 * atan(k .* tan(f0/2));
+        E2 = 2 * atan(k .* tan((f0 + eps)/2));
+        M0 = (E0-ecc.*sin(E0));
+        M2 = (E2-ecc.*sin(E2));
+        M = M2-M0 + 2*pi*(M2(1)<M0(1));
+        tof = (2*pi*[loop,loop-1]+M).*(a).*sqrt(a)*inv_mu;
+        if tof(1) > TOF
+            f0rangeMleft(1) = f0(1);
+        else
+            f0rangeMleft(2) = f0(1);
+        end
+        if tof(2) > TOF
+            f0rangeMright(2) = f0(2);
+        else
+            f0rangeMright(1) = f0(2);
+        end
+        if abs(tof(1) - TOF) < tol && abs(tof(2) - TOF) < tol
+            break;
+        end
+        if n_calc > 1000
+            %fprintf(';-; %1.f %1.f\n',r2,loop);
+            skip = 1;
+            break;
+        end
+    end
+    arec = [arec,a];
+    erec = [erec,ecc];
+    f0rec = [f0rec,f0];
+end
+end
+
+function COE = RV2COE(RV, mu)
+%RV2COE Converts state vectors (r,v) to classical orbital elements
+%   RV: 6xn matrix [r; v]
+%   mu: gravitational parameter
+%   COE: [a; e; i; RAAN; omega; M0] (6xn)
+
+n = size(RV, 2);
+COE = zeros(6, n);
+
+for k = 1:n
+    r = RV(1:3, k);
+    v = RV(4:6, k);
+
+    R = norm(r);
+    V = norm(v);
+
+    h = cross(r, v);
+    h_mag = norm(h);
+
+    k_hat = [0 0 1]';
+    n_vec = cross(k_hat, h);
+    n_mag = norm(n_vec);
+
+    e_vec = (1/mu) * ((V^2 - mu/R) * r - dot(r, v) * v);
+    e = norm(e_vec);
+
+    E = V^2/2 - mu/R;
+    if abs(E) > 1e-12
+        a = -mu / (2*E);
+    else
+        a = inf; % parabolic case
+    end
+
+    i = acos(h(3)/h_mag);
+
+    if n_mag ~= 0
+        RAAN = atan2(n_vec(2), n_vec(1));
+    else
+        RAAN = 0;
+    end
+
+    if n_mag ~= 0 && e > 1e-10
+        omega = atan2(dot(cross(n_vec, e_vec), h)/h_mag, dot(n_vec, e_vec));
+    else
+        omega = 0;
+    end
+
+    if e > 1e-10
+        f = atan2(dot(cross(e_vec, r), h)/(h_mag*e), dot(e_vec, r)/(e*R));
+    else
+        f = atan2(r(2), r(1));
+    end
+
+    Ecc = 2*atan( sqrt((1-e)/(1+e)) * tan(f/2) );
+    M0 = Ecc - e*sin(Ecc);
+
+    COE(:,k) = [a; e; i; RAAN; omega+pi; M0];
+end
+end
+
+function R_path = COE2Path(COE, f_vals, mu)
+%COE2Path Converts COE(6xn) to orbital position paths
+%   COE: [a; e; i; RAAN; omega; M0] (6xn)
+%   f_vals: vector of true anomaly values (e.g. 0:0.01:2*pi)
+%   mu: gravitational parameter
+%   R_path: [length(f_vals) x 3 x n] position vectors
+
+n = size(COE, 2);
+R_path = zeros(length(f_vals), 3, n);
+
+for k = 1:n
+    a = COE(1,k);
+    e = COE(2,k);
+    inc = COE(3,k);
+    RAAN = COE(4,k);
+    omega = COE(5,k)-pi;
+    r_path = a.*(1-e.^2)./(1+e.*cos(f_vals));
+    R_path(:,:,k) = [r_path.*(cos(f_vals+omega)*cos(RAAN)-sin(f_vals+omega)*cos(inc)*sin(RAAN)),...
+        r_path.*(cos(f_vals+omega)*sin(RAAN)+sin(f_vals+omega)*cos(inc)*cos(RAAN)),...
+        r_path.*(sin(f_vals+omega)*sin(inc))];
+end
+end
+
+function saveResultTable(result_table, planet_start, planet_arrival, tstart_sec, tarrive_sec)
+% saveResultTable - Save propagation result table as .mat and .csv
+%
+%   saveResultTable(result_table, planet_start, planet_arrival, tstart_sec, tarrive_sec)
+%
+%   Creates a folder like:
+%       Results02-13549705817d123
+%   And saves files:
+%       ResultP02-13549705817d123-P03-23255947871d532.mat/.csv
+
+    % Format timestamps
+    tstart_str  = sprintf('%.0fd%.0f', floor(tstart_sec), 1000 * (tstart_sec - floor(tstart_sec)));
+    tarrive_str = sprintf('%.0fd%.0f', floor(tarrive_sec), 1000 * (tarrive_sec - floor(tarrive_sec)));
+
+    % Folder name
+    folder_name = sprintf('Results%02d-%s', planet_start, tstart_str);
+    if ~exist(folder_name, 'dir')
+        mkdir(folder_name);
+    end
+
+    % File base name
+    file_base = sprintf('ResultP%02d-%s-P%02d-%s', ...
+        planet_start, tstart_str, planet_arrival, tarrive_str);
+
+    % Paths
+    mat_path = fullfile(folder_name, [file_base '.mat']);
+    csv_path = fullfile(folder_name, [file_base '.csv']);
+
+    % Save
+    save(mat_path, 'result_table');
+    writematrix(result_table, csv_path);
+
+    fprintf('✅ Saved: %s\n   and %s\n', mat_path, csv_path);
+end
